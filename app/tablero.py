@@ -129,9 +129,10 @@ with st.sidebar:
     st.subheader("Caso: contactar clientes en riesgo")
     rango = st.slider("Días sin comprar", 15, 120, (CN["dias_sin_compra_desde"], CN["dias_sin_compra_hasta"]))
     costo_c = st.number_input("Costo por cliente contactado ($)", 0, 5000, CN["costo_contacto_clp"], 50)
-    tasa = st.slider("Respuesta adicional por el cupón", 0.0, 0.5, float(CN["tasa_respuesta"]), 0.01, format="%.2f",
-                     help="% de contactados que vuelve gracias al cupón, por encima de los que habrían vuelto solos.")
-    desc = st.slider("Descuento del cupón", 0.0, 0.5, float(CN["descuento_cupon_pct"]), 0.05, format="%.2f")
+    # En porcentaje (15%, no 0,15) para que se compare directo con el punto de equilibrio que muestra el caso de negocio
+    tasa = st.slider("Respuesta adicional por el cupón (%)", 0, 50, round(100 * float(CN["tasa_respuesta"])), 1, format="%d%%",
+                     help="% de contactados que vuelve gracias al cupón, por encima de los que habrían vuelto solos.") / 100
+    desc = st.slider("Descuento del cupón (%)", 0, 50, round(100 * float(CN["descuento_cupon_pct"])), 5, format="%d%%") / 100
     vigencia = st.slider("Vigencia del cupón (días)", 7, 90, int(CN.get("vigencia_cupon_dias", 30)), 1,
                          help="Los clientes que vuelven solos dentro de este plazo igual usan el cupón: es costo sin efecto.")
     st.caption("Valores iniciales = supuestos del grupo (config/parametros.yaml), a validar con Marketing.")
@@ -232,11 +233,14 @@ for w in MT["ventanas_tablero"]:
                   "Conclusión": "repone más de lo que pierde" if x["indice_reposicion"] > 1.05 else
                   ("repone lo mismo que pierde" if x["indice_reposicion"] >= 0.95 else "pierde más de lo que repone")})
 tv = pd.DataFrame(filas)
-st.dataframe(tv, hide_index=True, width="stretch",
-             column_config={"Retención (RBA)": st.column_config.NumberColumn(format="%.1f%%"),
-                            "Índice de reposición": st.column_config.NumberColumn(format="%.2f"),
-                            "Cierre: % retenidos": st.column_config.NumberColumn(format="%.1f%%"),
-                            "Cierre: % nuevos": st.column_config.NumberColumn(format="%.1f%%")})
+# Vista con coma decimal (36,2%), igual que las cifras de arriba; `tv` queda numérica para armar la lectura
+tv_vista = tv.copy()
+for col in ["Base activa", "Retenidos", "Nuevos activos al cierre", "Perdidos"]:
+    tv_vista[col] = tv[col].map(num)
+for col in ["Retención (RBA)", "Cierre: % retenidos", "Cierre: % nuevos"]:
+    tv_vista[col] = tv[col].map(pct)
+tv_vista["Índice de reposición"] = tv["Índice de reposición"].map(lambda v: num(v, 2))
+st.dataframe(tv_vista, hide_index=True, width="stretch")
 # La lectura se arma con los números de la tabla, para que siga siendo cierta con cualquier fecha base o corrida
 rep_min, rep_max = tv["Índice de reposición"].min(), tv["Índice de reposición"].max()
 lectura = [f"Con la misma base ({base_c:%d-%m-%Y}), una ventana más larga retiene más porque exige menos para \"seguir activo\"."]
@@ -251,11 +255,21 @@ else:
     detalle = "; ".join(f"{f['Ventana']}: {pct(f['Cierre: % retenidos'])} retenidos y {pct(f['Cierre: % nuevos'])} nuevos" for _, f in parejas.iterrows())
     lectura.append(f"Con ventanas largas la base al cierre queda pareja entre retenidos y nuevos ({detalle}): "
                    + ("la conclusión se suaviza, pero no se invierte." if rep_min >= 0.95 else "revisar la conclusión."))
-st.caption(" ".join(lectura))
+# La conclusión va destacada (prueba de uso, 18-nov: se leía como nota al pie y se comparaba con la cifra de arriba)
+st.info("**Conclusión:** " + " ".join(lectura), icon="🔎")
+if base_c != FB:
+    st.warning(f"**No comparen esta tabla con la cifra de arriba.** Arriba la fecha base es el {FB:%d-%m-%Y}; aquí es el {base_c:%d-%m-%Y}, "
+               f"la misma para las tres ventanas. Para saber si la conclusión cambia, comparen las tres filas entre sí.", icon="⚠️")
 
 # ------------------------------------------------------------------ corte por la dimensión principal
-st.subheader("Por formato de local: las diferencias caben en el margen de error (sin ranking)")
+st.subheader(f"Retención de la base activa por formato de local ({W} días, base {FB:%d-%m})")
 pf = R.por_formato(W, FB, MT["min_clientes_corte"])
+# La frase sale de los datos: en una dimensión, si los intervalos se cruzan de a pares, comparten un tramo común
+ic = pf.dropna(subset=["IC95_inf", "IC95_sup"])
+if len(ic) > 1 and ic["IC95_inf"].max() <= ic["IC95_sup"].min():
+    st.markdown("**Ningún formato retiene más que otro: los intervalos se solapan.** Sin ranking: con estos datos la diferencia es ruido.")
+else:
+    st.markdown("**Hay formatos cuyos intervalos no se solapan:** revisar cuáles antes de concluir.")
 base_pf = alt.Chart(pf).encode(y=alt.Y("formato:N", title=None, sort=None))
 puntos = base_pf.mark_point(filled=True, size=90, color=AZUL).encode(
     x=alt.X("RBA_pct:Q", title="Retención de la base activa (%) con intervalo de confianza 95%", scale=alt.Scale(domain=[0, 100])),
@@ -280,7 +294,13 @@ k2.metric("Costo de la acción", clp(cn["costo_total"]),
 k3.metric(f"Margen recuperado ({CN['horizonte_valor_dias']} días)", clp(cn["margen_recuperado"]),
           help=f"Solo los clientes que vuelven por el cupón × margen promedio que deja un cliente en {CN['horizonte_valor_dias']} días tras volver a comprar.")
 k4.metric("Resultado neto", clp(cn["beneficio_neto"]))
-k4.caption(f"Conviene si el cupón trae más del {pct(100 * cn['tasa_equilibrio'])} adicional de los contactados" if pd.notna(cn["tasa_equilibrio"]) else "")
+# El supuesto va al lado del punto de equilibrio, con el veredicto (prueba de uso, 18-nov: el 3,6% solo no permitía decidir)
+if pd.notna(cn["tasa_equilibrio"]):
+    conviene = tasa > cn["tasa_equilibrio"]
+    k4.markdown((":green[**Conviene**]" if conviene else ":red[**No conviene**]")
+                + f": supuesto **{pct(100 * tasa)}** de respuesta adicional, equilibrio **{pct(100 * cn['tasa_equilibrio'])}**.",
+                help="Conviene si el cupón trae, por encima de los que vuelven solos, más contactados que el punto de equilibrio. "
+                     "El supuesto se cambia en la barra lateral.")
 st.caption(f"Sin contacto, el {pct(100 * cn['vuelven_solos_pct'])} de estos clientes vuelve solo dentro de {vigencia} días "
            f"(medido en {num(cn['casos_referencia_solos'])} casos de los cierres de 2025). A ellos el cupón no los trae, pero igual lo usan: "
            f"ese descuento está en el costo y su margen no se cuenta como recuperado.")
@@ -301,12 +321,22 @@ with t1:
     det["dias_sin_comprar"] = (FIN - det["ultima_compra"]).dt.days
     det = det[["cliente_id", "segmento_actual", "ultima_compra", "dias_sin_comprar", "compras_2025", "gasto_real_2025"]] \
         .sort_values(["dias_sin_comprar", "gasto_real_2025"], ascending=[True, False])
-    st.dataframe(det, hide_index=True, width="stretch",
-                 column_config={"ultima_compra": st.column_config.DateColumn("última compra", format="DD-MM-YYYY"),
-                                "gasto_real_2025": st.column_config.NumberColumn("gasto 2025 ($ dic)", format="dollar")})
+    # En pantalla, pesos chilenos sin decimales ($254.258); el CSV descargable queda con los números sin formato
+    det_vista = pd.DataFrame({
+        "Cliente": det["cliente_id"], "Segmento (hoy)": det["segmento_actual"],
+        "Última compra": det["ultima_compra"].dt.strftime("%d-%m-%Y"), "Días sin comprar": det["dias_sin_comprar"],
+        "Compras en 2025": det["compras_2025"], "Gasto 2025 ($ de dic)": det["gasto_real_2025"].map(clp)})
+    st.dataframe(det_vista, hide_index=True, width="stretch")
     st.download_button("Descargar lista (CSV)", det.to_csv(index=False).encode("utf-8-sig"), "clientes_a_contactar.csv", "text/csv")
 with t2:
-    st.dataframe(trim, hide_index=True, width="stretch")
+    trim_vista = pd.DataFrame({
+        "Trimestre": trim["trimestre"], "Clientes que compran": trim["clientes_que_compran"].map(num),
+        "Nuevos en el trimestre": trim["nuevos_en_el_trimestre"].map(num),
+        "Boletas por cliente": trim["boletas_por_cliente"].map(lambda v: num(v, 2)),
+        "Ventas ($ de dic)": trim["ventas_reales_dic"].map(clp), "Gasto por cliente ($ de dic)": trim["gasto_real_por_cliente"].map(clp),
+        "Retención al trimestre siguiente": trim["retencion_a_T+1_pct"].map(pct),
+        "· nuevos": trim["retencion_nuevos_pct"].map(pct), "· resto": trim["retencion_resto_pct"].map(pct)})
+    st.dataframe(trim_vista, hide_index=True, width="stretch")
 
 # ------------------------------------------------------------------ pie
 n_ok = int((pruebas_ult["resultado"] == "OK").sum())
