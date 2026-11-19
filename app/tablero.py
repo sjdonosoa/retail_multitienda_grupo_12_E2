@@ -178,10 +178,10 @@ st.info(f"**Regla de lectura:** un cliente **se retiene** si compró en los {W} 
 
 # ------------------------------------------------------------------ cifra clave
 c1, c2, c3, c4 = st.columns(4)
-c1.metric(f"Retención base activa · {W} días", pct(r["RBA_pct"]),
+c1.metric("Retención de la base activa (RBA)", pct(r["RBA_pct"]),
           delta=f"{r['RBA_pct'] - r_alt['RBA_pct']:+.1f} pts vs W = {r_alt['ventana_dias']}".replace(".", ","), delta_color="off",
           help=metricas.DEFINICIONES["RBA"])
-c1.caption(f"{num(r['retenidos'])} de {num(r['base_activa'])} clientes activos al {FB:%d-%m} siguen activos al 31-dic")
+c1.caption(f"{num(r['retenidos'])} de {num(r['base_activa'])} clientes activos al {FB:%d-%m} siguen activos al 31-dic (ventana {W} días)")
 c2.metric("Retención trimestral T3→T4", pct(trim['retencion_a_T+1_pct'].iloc[-2]),
           delta=f"{trim['retencion_a_T+1_pct'].iloc[-2] - trim['retencion_a_T+1_pct'].iloc[0]:+.1f} pts vs T1 → T2".replace(".", ","),
           delta_color="normal", help=metricas.DEFINICIONES["trimestral"])

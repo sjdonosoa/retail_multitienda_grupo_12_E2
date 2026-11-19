@@ -7,7 +7,7 @@ PCT_EXCLUIDAS,% de boletas originales excluidas de la métrica,14.3,%
 PCT_ANONIMAS_VALIDAS,% de boletas válidas anónimas,13.0,%
 PCT_VENTAS_IDENT,% de ventas válidas de clientes identificados,93.5,%
 N_PROBLEMAS,Problemas de calidad detectados,29,problemas
-FUENTE_IPC,Fuente del IPC usada en esta corrida,respaldo de la API (2026-10-14),
+FUENTE_IPC,Fuente del IPC usada en esta corrida,API mindicador.cl,
 INFLACION,Inflación acumulada 2025,3.44,%
 IMPACTO_MONTO,Cambio en ventas si se usara monto_linea original,0.82,%
 IMPACTO_ATIPICA,Cambio en ventas si las cantidades atípicas se dividieran por 10,-2.56,%
